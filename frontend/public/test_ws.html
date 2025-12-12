@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <div id="status">Disconnected</div>
+    <div id="log"></div>
+    <script>
+        const statusDiv = document.getElementById('status');
+        const logDiv = document.getElementById('log');
+        function log(msg) {
+            logDiv.innerHTML += msg + '<br>';
+            console.log(msg);
+        }
+        
+        try {
+            log('Connecting to ws://127.0.0.1:8080/api/audio/stream...');
+            const socket = new WebSocket('ws://127.0.0.1:8080/api/audio/stream');
+            
+            socket.onopen = function() {
+                statusDiv.innerText = 'Connected';
+                log('WebSocket OPEN');
+                socket.send('ping');
+            };
+            
+            socket.onmessage = function(e) {
+                log('Message received: ' + e.data);
+            };
+            
+            socket.onclose = function(e) {
+                statusDiv.innerText = 'Disconnected';
+                log('WebSocket CLOSED: ' + e.code + ' ' + e.reason);
+            };
+            
+            socket.onerror = function(e) {
+                log('WebSocket ERROR');
+            };
+            
+        } catch(e) {
+            log('Exception: ' + e.message);
+        }
+    </script>
+</body>
+</html>
