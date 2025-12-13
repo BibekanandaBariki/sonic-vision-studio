@@ -86,10 +86,13 @@ public class SpeechTranscriptionService {
                                     if (isFinal) {
                                         // Generate AI response
                                         aiService.generateResponse(text)
-                                            .subscribe(aiResponse -> {
-                                                log.info("AI Response generated: {}", aiResponse);
-                                                transcriptSink.tryEmitNext(new TranscriptionResult(aiResponse, true, "ai"));
-                                            });
+                                            .subscribe(
+                                                aiResponse -> {
+                                                    log.info("AI Response generated: {}", aiResponse);
+                                                    transcriptSink.tryEmitNext(new TranscriptionResult(aiResponse, true, "ai"));
+                                                },
+                                                error -> log.error("Failed to generate AI response", error)
+                                            );
                                     }
                                 }
                             } else {
