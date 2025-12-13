@@ -79,7 +79,7 @@ return "data: " + jsonStr + "\n\n"; // Proper SSE format
    ```bash
    cd backend
    # Create .env file
-   echo "GEMINI_API_KEY=AIzaSyCJu2hh6x0Pjdk5rDXpZP7igDZ440pFZ08" > .env
+   echo "GEMINI_API_KEY=YOUR_GEMINI_API_KEY_HERE" > .env
    ```
 
 2. **Start Backend**:

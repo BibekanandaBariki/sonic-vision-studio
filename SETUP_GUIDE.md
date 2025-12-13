@@ -11,10 +11,10 @@ cd backend
 cp env.example .env
 
 # Edit .env and add your Gemini API key:
-# GEMINI_API_KEY=AIzaSyCJu2hh6x0Pjdk5rDXpZP7igDZ440pFZ08
-
-# Or set as environment variable:
-export GEMINI_API_KEY=AIzaSyCJu2hh6x0Pjdk5rDXpZP7igDZ440pFZ08
+# GEMINI_API_KEY=YOUR_GEMINI_API_KEY_HERE
+ 
+ # Or set as environment variable:
+ export GEMINI_API_KEY=YOUR_GEMINI_API_KEY_HERE
 
 # Run backend
 mvn spring-boot:run
