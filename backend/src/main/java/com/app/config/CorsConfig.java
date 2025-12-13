@@ -10,13 +10,25 @@ import java.util.List;
 
 @Configuration
 public class CorsConfig {
+    
+    @org.springframework.beans.factory.annotation.Value("${allowed.origins:*}")
+    private String allowedOrigins;
+
     @Bean
     public CorsWebFilter corsWebFilter() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("*"));
+        
+        if ("*".equals(allowedOrigins)) {
+            config.setAllowedOriginPatterns(List.of("*"));
+        } else {
+            config.setAllowedOrigins(List.of(allowedOrigins.split(",")));
+        }
+        
         config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(false);
+        // Credentials usually needed if frontend calls API with cookies/auth headers
+        // If we enable credentials, we cannot use '*' for allowedOrigins, must be explicit or originPatterns
+        config.setAllowCredentials(true); 
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);

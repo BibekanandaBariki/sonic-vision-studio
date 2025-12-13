@@ -1,7 +1,8 @@
 package com.app.controller;
 
-import com.app.service.AudioProcessingService;
+import com.app.service.SpeechTranscriptionService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.stereotype.Component;
@@ -10,75 +11,66 @@ import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 import reactor.core.publisher.Mono;
 
-import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.time.Duration;
-
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class AudioStreamHandler implements WebSocketHandler {
 
-    private final AudioProcessingService processingService;
-    private static final Path LOG_PATH = Path.of(System.getProperty("user.home"), "Documents", "PrepXL_Project", ".cursor", "debug.log");
-
-    private void log(String hypothesisId, String location, String message, int size) {
-        try {
-            String payload = String.format(
-                    "{\"sessionId\":\"debug-session\",\"runId\":\"run-repro3\",\"hypothesisId\":\"%s\",\"location\":\"%s\",\"message\":\"%s\",\"data\":{\"bytes\":%d},\"timestamp\":%d}%n",
-                    hypothesisId, location, message, size, System.currentTimeMillis());
-            Files.writeString(LOG_PATH, payload, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (Exception ignored) {
-        }
-    }
+    private final SpeechTranscriptionService sttService;
 
     @Override
     public Mono<Void> handle(WebSocketSession session) {
-        System.out.println("AudioStreamHandler.handle() called - WebSocket connection attempt");
-        
-        // Send a simple acknowledgment when the connection is established
+        // Send a simple acknowledgment
         Mono<Void> ack = session.send(Mono.just(
                 new WebSocketMessage(WebSocketMessage.Type.TEXT, 
                         session.bufferFactory().wrap("connected".getBytes()))))
-                .doOnSuccess(v -> {
-                    System.out.println("Connection ack sent successfully");
-                })
                 .onErrorResume(err -> {
-                    System.out.println("Failed to send connection ack: " + err.getMessage());
+                    log.error("Failed to send ack", err);
                     return Mono.empty();
                 });
 
-        // Process incoming audio data
-        Mono<Void> audioProcessing = session.receive()
-                .doOnNext(msg -> System.out.println("Processing message type: " + msg.getType()))
-                .filter(msg -> msg.getType() == WebSocketMessage.Type.BINARY)
+        // Process incoming messages
+        Mono<Void> processing = session.receive()
                 .flatMap(msg -> {
-                    // Extract payload and process
-                    return Mono.fromCallable(() -> {
+                    if (msg.getType() == WebSocketMessage.Type.BINARY) {
+                        // Extract audio data
+                        return Mono.fromCallable(() -> {
+                            DataBuffer buffer = msg.getPayload();
+                            byte[] bytes = new byte[buffer.readableByteCount()];
+                            buffer.read(bytes);
+                            DataBufferUtils.release(buffer);
+                            return bytes;
+                        })
+                        .doOnNext(bytes -> {
+                            // Send to STT Service - it will auto-start if needed
+                            sttService.sendAudio(bytes);
+                        });
+                    } else if (msg.getType() == WebSocketMessage.Type.TEXT) {
                         DataBuffer buffer = msg.getPayload();
-                        byte[] bytes = new byte[buffer.readableByteCount()];
-                        buffer.read(bytes);
-                        // Important: Release buffer to prevent leaks!
+                        String text = buffer.toString(java.nio.charset.StandardCharsets.UTF_8);
                         DataBufferUtils.release(buffer);
-                        return bytes;
-                    }).flatMap(processingService::handleAudioChunk);
+                        
+                        log.debug("Received command: {}", text);
+                        
+                        if ("ping".equals(text) && !sttService.isStreamInitialized()) {
+                           sttService.startStream();
+                        } else if ("silence".equals(text)) {
+                            // Close stream on silence to finalize results and save cost/resources.
+                            // This matches the frontend VAD behavior which stops sending audio.
+                            log.info("Silence detected - pausing audio sending (stream kept open)");
+                            // sttService.stopStream(); // Keep open to prevent 'First-Word-Clipping'
+                        }
+                        return Mono.empty();
+                    }
+                    return Mono.empty();
                 })
-                .doOnError(e -> {
-                    System.err.println("AudioProcessing Error: " + e.getMessage());
-                    e.printStackTrace();
-                })
-                .doOnComplete(() -> System.out.println("AudioProcessing Complete (Client likely disconnected)"))
-                .doFinally(signalType -> {
-                    System.out.println("WebSocket connection closed or cancelled: " + signalType);
+                .doOnError(e -> log.error("WS Error", e))
+                .doOnComplete(() -> {
+                    log.info("WS Session ended");
+                    sttService.stopStream(); 
                 })
                 .then();
 
-        // Keep connection open and process both flows
-        return ack
-                .doOnError(e -> System.err.println("Ack Error: " + e))
-                .then(audioProcessing)
-                .doOnSubscribe(s -> System.out.println("WebSocket subscribed"))
-                .doOnTerminate(() -> System.out.println("WebSocket terminated"));
+        return ack.then(processing);
     }
 }

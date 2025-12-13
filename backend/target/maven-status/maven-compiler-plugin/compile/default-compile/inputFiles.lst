@@ -1,7 +1,13 @@
-/Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/controller/AudioStreamHandler.java
+/Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/model/TranscriptionResult.java
 /Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/config/WebSocketConfig.java
 /Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/Application.java
-/Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/service/AudioProcessingService.java
+/Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/GeminiTokenTester.java
 /Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/config/CorsConfig.java
 /Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/service/GeminiTranscriptionService.java
 /Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/controller/AudioStreamController.java
+/Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/controller/TranscriptionController.java
+/Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/controller/AudioStreamHandler.java
+/Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/service/AiService.java
+/Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/service/AudioProcessingService.java
+/Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/service/GoogleSpeechTranscriptionService.java
+/Users/bibekanandabariki/Documents/PrepXL_Project/backend/src/main/java/com/app/service/SpeechTranscriptionService.java

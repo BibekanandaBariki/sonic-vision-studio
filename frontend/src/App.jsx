@@ -27,8 +27,9 @@ function App() {
   const [isRecording, setIsRecording] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
   const [partialTranscript, setPartialTranscript] = useState('')
-  const [finalTranscripts, setFinalTranscripts] = useState([])
+  const [conversation, setConversation] = useState([]) // Unified state [ { user: '...', ai: '...' } ]
   const [audioLevel, setAudioLevel] = useState(0)
+  const [isSpeaking, setIsSpeaking] = useState(false) // VAD speech detection state
   const [colorIndex, setColorIndex] = useState(0)
   const audioContextRef = useRef(null)
   const analyserRef = useRef(null)
@@ -36,6 +37,7 @@ function App() {
   const rafRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const [runId] = useState('run-initial')
+  const transcriptionStreamRef = useRef(null)
 
   const scheme = useMemo(() => colorSchemes[colorIndex], [colorIndex])
 
@@ -47,19 +49,39 @@ function App() {
   }, [])
 
   const handleTranscriptionStream = () => {
+    // Close existing stream if any
+    if (transcriptionStreamRef.current) {
+      transcriptionStreamRef.current.close()
+    }
+
     const stream = openTranscriptionStream({
       onMessage: (payload) => {
-        if (payload.type === 'partial') {
+        console.log('Received transcription payload:', payload)
+        if (payload.type === 'user_partial') {
           setPartialTranscript(payload.text)
-        } else if (payload.type === 'final') {
-          setFinalTranscripts((prev) => [...prev, payload.text])
+        } else if (payload.type === 'user_final') {
+          setConversation((prev) => [
+            ...prev,
+            { id: Date.now(), user: payload.text, ai: null }
+          ])
           setPartialTranscript('')
+        } else if (payload.type === 'ai_response') {
+          setConversation((prev) => {
+            const copy = [...prev]
+            if (copy.length > 0) {
+              const lastIndex = copy.length - 1
+              copy[lastIndex] = { ...copy[lastIndex], ai: payload.text }
+            }
+            return copy
+          })
         }
       },
-      onError: () => {
+      onError: (err) => {
+        console.error('Transcription stream error:', err)
         toast.error('Transcription stream interrupted')
       },
     })
+    transcriptionStreamRef.current = stream
     return stream
   }
 
@@ -83,33 +105,54 @@ function App() {
 
   const startRecording = async () => {
     try {
-      console.log('Starting recording process');
-      const { audioContext, analyser, dataArray, mediaRecorder } =
-        await startAudioCapture({
-          onAudioData: (blob) => {
-            console.log('Sending audio chunk');
-            sendAudioChunk(blob)
-          },
-          runId,
-        })
+      console.log('Starting recording with VAD...')
 
-      audioContextRef.current = audioContext
-      analyserRef.current = analyser
-      dataArrayRef.current = dataArray
-      mediaRecorderRef.current = mediaRecorder
+      const captureResult = await startAudioCapture({
+        // Send audio chunks only during speech (VAD gated)
+        onAudioData: (blob) => {
+          // Use the sendAudioChunk function instead of direct WebSocket send
+          sendAudioChunk(blob)
+        },
 
-      console.log('Connecting to WebSocket');
-      connectWebSocket({
+        // VAD callbacks
+        onSpeechStart: () => {
+          console.log('[App] Speech detected - streaming started')
+          setIsSpeaking(true)
+        },
+
+        onSpeechEnd: () => {
+          console.log('[App] Speech ended - streaming stopped')
+          setIsSpeaking(false)
+        },
+
+        onEnergyUpdate: (energy) => {
+          // Optional: use for visualizer intensity
+          setAudioLevel(energy * 2) // Scale for visibility
+        },
+
+        // VAD configuration
+        vadConfig: {
+          energyThreshold: 0.02,
+          silenceDuration: 1000, // Increased to keep context key
+          minSpeechDuration: 100,
+        },
+
+        useVAD: true, // Enable VAD
+      })
+
+      audioContextRef.current = captureResult.audioContext
+      analyserRef.current = captureResult.analyser
+      dataArrayRef.current = captureResult.dataArray
+      mediaRecorderRef.current = captureResult
+
+      const ws = connectWebSocket({
         onOpen: () => {
-          console.log('WebSocket connection opened');
           setConnectionStatus('connected')
         },
         onClose: () => {
-          console.log('WebSocket connection closed');
           setConnectionStatus('disconnected')
         },
         onError: () => {
-          console.log('WebSocket error occurred');
           setConnectionStatus('error')
           toast.error('WebSocket error')
         },
@@ -129,6 +172,10 @@ function App() {
     stopVisualizerLoop()
     stopAudioCapture(mediaRecorderRef.current, audioContextRef.current)
     disconnectWebSocket()
+    if (transcriptionStreamRef.current) {
+      transcriptionStreamRef.current.close()
+      transcriptionStreamRef.current = null
+    }
     setIsRecording(false)
     setConnectionStatus('disconnected')
     setPartialTranscript('')
@@ -230,8 +277,8 @@ function App() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-full border ${isRecording
-                      ? 'border-emerald-400/50 bg-emerald-400/10 text-emerald-300'
-                      : 'border-white/10 bg-white/5 text-white'
+                    ? 'border-emerald-400/50 bg-emerald-400/10 text-emerald-300'
+                    : 'border-white/10 bg-white/5 text-white'
                     }`}
                 >
                   {isRecording ? (
@@ -247,8 +294,9 @@ function App() {
             </div>
             <TranscriptionDisplay
               partial={partialTranscript}
-              finals={finalTranscripts}
+              conversation={conversation}
               audioLevel={audioLevel}
+              isSpeaking={isSpeaking}
             />
           </section>
         </main>

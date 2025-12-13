@@ -1,4 +1,6 @@
-const SAMPLE_RATE = 16000
+import EnergyVAD from './energyVAD'
+
+const SAMPLE_RATE = 48000
 const BUFFER_SIZE = 4096
 
 const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {
@@ -12,7 +14,6 @@ const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {
   let offsetBuffer = 0
   while (offsetResult < result.length) {
     const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio)
-    // Simple averaging (linear interpolation or decimation could be better but this is fast)
     let accum = 0,
       count = 0
     for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
@@ -26,16 +27,39 @@ const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {
   return result
 }
 
-const convertFloat32ToInt16 = (buffer) => {
-  let l = buffer.length
-  let buf = new Int16Array(l)
-  while (l--) {
-    buf[l] = Math.min(1, buffer[l]) * 0x7fff
+function floatTo16BitPCM(float32Array) {
+  const buffer = new ArrayBuffer(float32Array.length * 2);
+  const view = new DataView(buffer);
+  let offset = 0;
+
+  for (let i = 0; i < float32Array.length; i++, offset += 2) {
+    let sample = Math.max(-1, Math.min(1, float32Array[i]));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
   }
-  return buf.buffer
+
+  return buffer;
 }
 
-export const startAudioCapture = async ({ onAudioData, runId }) => {
+/**
+ * Start real-time audio capture with VAD
+ * 
+ * @param {Object} options
+ * @param {Function} options.onAudioData - Callback for audio chunks (only during speech)
+ * @param {Function} options.onSpeechStart - Callback when speech starts
+ * @param {Function} options.onSpeechEnd - Callback when speech ends
+ * @param {Function} options.onEnergyUpdate - Callback for energy level updates
+ * @param {Object} options.vadConfig - VAD configuration
+ * @param {boolean} options.useVAD - Enable/disable VAD (default: true)
+ * @returns {Object} Audio context, analyser, and controls
+ */
+export const startAudioCapture = async ({
+  onAudioData,
+  onSpeechStart,
+  onSpeechEnd,
+  onEnergyUpdate,
+  vadConfig = {},
+  useVAD = true,
+}) => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -47,64 +71,101 @@ export const startAudioCapture = async ({ onAudioData, runId }) => {
     })
 
     const audioContext = new (window.AudioContext || window.webkitAudioContext)({
-      sampleRate: SAMPLE_RATE, // Try to request 16kHz context directly if possible
+      sampleRate: SAMPLE_RATE,
     })
 
-    // Fallback: if browser doesn't support requesting sample rate, we handle resampling
     const source = audioContext.createMediaStreamSource(stream)
     const processor = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1)
 
+    // Create analyser for visualizer (independent of VAD)
     const analyser = audioContext.createAnalyser()
     analyser.fftSize = 2048
     analyser.smoothingTimeConstant = 0.8
     const dataArray = new Uint8Array(analyser.frequencyBinCount)
 
+    // Connect audio graph
     source.connect(analyser)
     analyser.connect(processor)
     processor.connect(audioContext.destination)
 
+    // Initialize VAD
+    let vad = null
+    let speechActive = false
+    if (useVAD) {
+      vad = new EnergyVAD(vadConfig)
+
+      vad.setSpeechStartCallback(() => {
+        console.log('[VAD] Speech started')
+        speechActive = true
+        onSpeechStart?.()
+      })
+
+      vad.setSpeechEndCallback(() => {
+        console.log('[VAD] Speech ended - sending silence marker')
+        speechActive = false
+        onSpeechEnd?.()
+        // Send silence marker as text to indicate end of utterance
+        onAudioData?.("silence")
+      })
+
+      vad.setEnergyUpdateCallback((energy) => {
+        onEnergyUpdate?.(energy)
+      })
+    }
+
+    // Process audio in real-time
     processor.onaudioprocess = (e) => {
       const inputData = e.inputBuffer.getChannelData(0)
-      // Check if we need to resample
+
+      // Resample if needed
       let pcmData = inputData
       if (audioContext.sampleRate !== SAMPLE_RATE) {
         pcmData = downsampleBuffer(inputData, audioContext.sampleRate, SAMPLE_RATE)
       }
 
-      const int16Data = convertFloat32ToInt16(pcmData)
-      if (int16Data.byteLength > 0) {
-        // Send as Blob or raw ArrayBuffer? 
-        // APP expects Blob in the current logic, let's wrap it
-        const blob = new Blob([int16Data], { type: 'audio/pcm' })
-        onAudioData?.(blob)
+      // VAD check
+      let shouldSend = true
+      if (useVAD && vad) {
+        shouldSend = vad.update(pcmData)
+      }
+
+      // Send audio chunk only if VAD approves (or VAD disabled)
+      if (shouldSend && pcmData.length > 0) {
+        const pcm16 = floatTo16BitPCM(pcmData)
+        if (pcm16.byteLength > 0) {
+          const blob = new Blob([pcm16], { type: 'audio/pcm' })
+          onAudioData?.(blob)
+        }
       }
     }
 
     return {
-      audioContext, analyser, dataArray, mediaRecorder: {
-        state: 'recording', stop: () => {
-          processor.disconnect()
-          source.disconnect()
-          stream.getTracks().forEach(t => t.stop())
+      audioContext,
+      analyser,
+      dataArray,
+      vad,
+      stream,
+      stop: () => {
+        processor.disconnect()
+        source.disconnect()
+        stream.getTracks().forEach((t) => t.stop())
+        if (audioContext.state !== 'closed') {
+          audioContext.close()
         }
-      }
+      },
     }
   } catch (error) {
-    console.error("Error accessing microphone:", error)
+    console.error('Error accessing microphone:', error)
     throw error
   }
 }
 
-export const stopAudioCapture = (mediaRecorder, audioContext) => {
+export const stopAudioCapture = (captureResult) => {
   try {
-    if (mediaRecorder && mediaRecorder.stop) {
-      mediaRecorder.stop()
-    }
-    if (audioContext && audioContext.state !== 'closed') {
-      audioContext.close()
+    if (captureResult && captureResult.stop) {
+      captureResult.stop()
     }
   } catch (e) {
-    console.warn("Error stopping audio capture", e)
+    console.warn('Error stopping audio capture', e)
   }
 }
-

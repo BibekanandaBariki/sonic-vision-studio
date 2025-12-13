@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE Test</title>
+</head>
+<body>
+    <h1>SSE Test</h1>
+    <div id="messages"></div>
+
+    <script>
+        const evtSource = new EventSource('http://localhost:8080/api/transcription/stream');
+        const messagesDiv = document.getElementById('messages');
+
+        evtSource.onopen = function() {
+            console.log('SSE Connection opened');
+            messagesDiv.innerHTML += '<p>SSE Connection opened</p>';
+        };
+
+        evtSource.onmessage = function(event) {
+            console.log('Message received:', event.data);
+            messagesDiv.innerHTML += '<p>Message: ' + event.data + '</p>';
+        };
+
+        evtSource.onerror = function(err) {
+            console.error('SSE Error:', err);
+            messagesDiv.innerHTML += '<p>Error: ' + err + '</p>';
+        };
+    </script>
+</body>
+</html>
