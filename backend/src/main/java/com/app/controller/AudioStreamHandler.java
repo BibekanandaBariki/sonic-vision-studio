@@ -55,10 +55,9 @@ public class AudioStreamHandler implements WebSocketHandler {
                         if ("ping".equals(text) && !sttService.isStreamInitialized()) {
                            sttService.startStream();
                         } else if ("silence".equals(text)) {
-                            // Close stream on silence to finalize results and save cost/resources.
-                            // This matches the frontend VAD behavior which stops sending audio.
-                            log.info("Silence detected - pausing audio sending (stream kept open)");
-                            // sttService.stopStream(); // Keep open to prevent 'First-Word-Clipping'
+                            // Close stream on silence to finalize results and prevent timeout
+                            log.info("Silence detected - closing STT stream");
+                            sttService.stopStream();
                         }
                         return Mono.empty();
                     }
