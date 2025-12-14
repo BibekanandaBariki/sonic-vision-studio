@@ -124,18 +124,49 @@ public class SpeechTranscriptionService {
             
             requestStream = speechClient.streamingRecognizeCallable().splitCall(responseObserver);
 
-            SpeechContext speechContext = SpeechContext.newBuilder()
-                    .addAllPhrases(java.util.List.of("Gemini", "PrepXL", "AI", "Java", "Spring Boot", "React", "Streaming", "Transcription", "WebSocket", "Audio"))
-                    .setBoost(20.0f) // High boost for these keywords
+            // Product names and brand terms - Maximum boost
+            SpeechContext productContext = SpeechContext.newBuilder()
+                    .addAllPhrases(java.util.List.of(
+                        "Gemini", "PrepXL", "ChatGPT", "OpenAI", "Google",
+                        "Claude", "Anthropic", "Llama", "Meta"
+                    ))
+                    .setBoost(20.0f) // Maximum boost for proper nouns
+                    .build();
+
+            // Technical terms - Strong boost
+            SpeechContext techContext = SpeechContext.newBuilder()
+                    .addAllPhrases(java.util.List.of(
+                        "API", "REST", "GraphQL", "WebSocket", "HTTP", "HTTPS",
+                        "Java", "Spring Boot", "React", "JavaScript", "Python",
+                        "Docker", "Kubernetes", "AWS", "Azure", "GCP",
+                        "microservice", "backend", "frontend", "full stack"
+                    ))
+                    .setBoost(15.0f) // Strong boost for technical terms
+                    .build();
+
+            // Interview and domain terms - Moderate boost
+            SpeechContext interviewContext = SpeechContext.newBuilder()
+                    .addAllPhrases(java.util.List.of(
+                        "mock interview", "resume", "ATS", "cover letter",
+                        "system design", "data structures", "algorithms",
+                        "behavioral question", "technical round", "coding interview",
+                        "tell me a joke", "what is", "how do I", "can you"
+                    ))
+                    .setBoost(10.0f) // Moderate boost for common phrases
                     .build();
 
             RecognitionConfig recognitionConfig = RecognitionConfig.newBuilder()
                     .setEncoding(RecognitionConfig.AudioEncoding.LINEAR16)
-                    .setSampleRateHertz(48000)
-                    .setLanguageCode("en-US")
-                    .setEnableAutomaticPunctuation(false) 
-                    .setModel("latest_long")
-                    .addSpeechContexts(speechContext)
+                    .setSampleRateHertz(16000)  // ✅ FIXED: 16kHz for optimal accuracy (was 48kHz)
+                    .setLanguageCode("en-IN")   // ✅ FIXED: Indian English (was en-US)
+                    .setModel("latest_long")    // Best for continuous speech
+                    .setUseEnhanced(true)       // ✅ ADDED: Enhanced model for 10-15% accuracy boost
+                    .setEnableAutomaticPunctuation(true)  // ✅ FIXED: Enable punctuation (was false)
+                    .setMaxAlternatives(1)      // Only best result
+                    .setAudioChannelCount(1)    // Mono channel
+                    .addSpeechContexts(productContext)
+                    .addSpeechContexts(techContext)
+                    .addSpeechContexts(interviewContext)
                     .build();
 
             StreamingRecognitionConfig streamingConfig = StreamingRecognitionConfig.newBuilder()

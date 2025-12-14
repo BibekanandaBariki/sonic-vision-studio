@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Toaster, toast } from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Mic, MicOff, WifiOff, Wifi, Activity, Sparkles } from 'lucide-react'
+import { Mic, MicOff, WifiOff, Wifi, Activity, Sparkles, Trash2 } from 'lucide-react'
 import AudioVisualizer from './components/AudioVisualizer'
 import AudioControls from './components/AudioControls'
 import TranscriptionDisplay from './components/TranscriptionDisplay'
@@ -193,6 +193,12 @@ function App() {
     setColorIndex((prev) => (prev + 1) % colorSchemes.length)
   }
 
+  const clearHistory = () => {
+    setConversation([])
+    setPartialTranscript('')
+    toast.success('Conversation history cleared')
+  }
+
   return (
     <div className="relative overflow-hidden text-slate-100 min-h-screen">
       <div className="noise-overlay" />
@@ -270,27 +276,40 @@ function App() {
                 </p>
                 <h3 className="text-2xl font-semibold">Live Insights</h3>
               </div>
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={isRecording ? 'live' : 'idle'}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-full border ${isRecording
-                    ? 'border-emerald-400/50 bg-emerald-400/10 text-emerald-300'
-                    : 'border-white/10 bg-white/5 text-white'
-                    }`}
-                >
-                  {isRecording ? (
-                    <Mic size={16} />
-                  ) : (
-                    <MicOff size={16} className="text-amber-300" />
-                  )}
-                  <span className="text-sm">
-                    {isRecording ? 'Capturing voice' : 'Not recording'}
-                  </span>
-                </motion.div>
-              </AnimatePresence>
+              <div className="flex items-center gap-3">
+                {conversation.length > 0 && (
+                  <button
+                    onClick={clearHistory}
+                    className="flex items-center gap-2 px-3 py-2 rounded-full border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white transition-colors text-sm"
+                    title="Clear conversation history"
+                  >
+                    <Trash2 size={16} />
+                    <span className="hidden sm:inline">Clear History</span>
+                  </button>
+                )}
+
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={isRecording ? 'live' : 'idle'}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full border ${isRecording
+                      ? 'border-emerald-400/50 bg-emerald-400/10 text-emerald-300'
+                      : 'border-white/10 bg-white/5 text-white'
+                      }`}
+                  >
+                    {isRecording ? (
+                      <Mic size={16} />
+                    ) : (
+                      <MicOff size={16} className="text-amber-300" />
+                    )}
+                    <span className="text-sm">
+                      {isRecording ? 'Capturing voice' : 'Not recording'}
+                    </span>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
             </div>
             <TranscriptionDisplay
               partial={partialTranscript}

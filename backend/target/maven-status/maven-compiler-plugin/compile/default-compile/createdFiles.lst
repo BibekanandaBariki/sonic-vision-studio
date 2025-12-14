@@ -2,9 +2,12 @@ com/app/config/CorsConfig.class
 com/app/GeminiTokenTester.class
 com/app/model/TranscriptionResult.class
 com/app/config/WebSocketConfig.class
-com/app/service/SpeechTranscriptionService.class
 com/app/service/AiService.class
-com/app/controller/AudioStreamHandler.class
 com/app/service/SpeechTranscriptionService$1.class
+com/app/service/AudioProcessingService.class
+com/app/service/GeminiTranscriptionService.class
+com/app/controller/AudioStreamController.class
+com/app/service/SpeechTranscriptionService.class
+com/app/controller/AudioStreamHandler.class
 com/app/Application.class
 com/app/controller/TranscriptionController.class

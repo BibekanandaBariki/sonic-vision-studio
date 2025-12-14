@@ -1,6 +1,6 @@
 import EnergyVAD from './energyVAD'
 
-const SAMPLE_RATE = 48000
+const SAMPLE_RATE = 16000  // ✅ FIXED: 16kHz optimal for Google Cloud STT (was 48kHz)
 const BUFFER_SIZE = 4096
 
 const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {

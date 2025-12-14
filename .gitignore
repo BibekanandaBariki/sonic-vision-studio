@@ -16,3 +16,16 @@ debug_audio.pcm
 credentials.json
 prepxl-*.json
 
+
+### Java/Maven ###
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+### IDEs ###
+.idea/
+.vscode/
+*.swp
+*.iml
