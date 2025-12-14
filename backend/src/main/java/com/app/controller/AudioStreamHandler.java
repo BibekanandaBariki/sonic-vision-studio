@@ -55,9 +55,14 @@ public class AudioStreamHandler implements WebSocketHandler {
                         if ("ping".equals(text) && !sttService.isStreamInitialized()) {
                            sttService.startStream();
                         } else if ("silence".equals(text)) {
-                            // Close stream on silence to finalize results and prevent timeout
-                            log.info("Silence detected - closing STT stream");
-                            sttService.stopStream();
+                            // Only close stream if we've received enough audio
+                            // This prevents cutting off short utterances like single words
+                            if (sttService.hasMinimumAudio()) {
+                                log.info("Silence detected - closing STT stream (sufficient audio received)");
+                                sttService.stopStream();
+                            } else {
+                                log.debug("Silence detected but insufficient audio - keeping stream open");
+                            }
                         }
                         return Mono.empty();
                     }

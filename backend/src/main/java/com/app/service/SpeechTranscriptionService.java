@@ -22,6 +22,13 @@ public class SpeechTranscriptionService {
     private SpeechClient speechClient;
     private volatile ClientStream<StreamingRecognizeRequest> requestStream;
     private final AtomicBoolean isStreaming = new AtomicBoolean(false);
+    
+    // Track audio duration to prevent premature closure
+    private volatile long streamStartTime = 0;
+    private volatile long totalAudioBytes = 0;
+    private static final int SAMPLE_RATE = 16000;
+    private static final int BYTES_PER_SAMPLE = 2; // 16-bit PCM
+    private static final long MIN_AUDIO_DURATION_MS = 400; // Minimum 400ms before allowing silence closure
 
     private AiService aiService;
     private final Sinks.Many<TranscriptionResult> transcriptSink =
@@ -56,6 +63,8 @@ public class SpeechTranscriptionService {
         }
 
         log.info("Initializing Google STT stream");
+        streamStartTime = System.currentTimeMillis();
+        totalAudioBytes = 0;
         
         try {
              debugFos = new java.io.FileOutputStream("debug_audio.pcm", true); // Append mode
@@ -224,6 +233,7 @@ public class SpeechTranscriptionService {
             requestStream.send(StreamingRecognizeRequest.newBuilder()
                     .setAudioContent(ByteString.copyFrom(pcmData))
                     .build());
+            totalAudioBytes += pcmData.length;
         } catch (Exception e) {
             log.error("Error sending audio chunk", e);
             isStreaming.set(false);
@@ -236,6 +246,27 @@ public class SpeechTranscriptionService {
 
     public boolean isStreamInitialized() {
         return isStreaming.get();
+    }
+    
+    /**
+     * Check if enough audio has been received to safely close the stream.
+     * Prevents premature closure on short utterances like single words.
+     */
+    public boolean hasMinimumAudio() {
+        if (!isStreaming.get()) {
+            return true; // If not streaming, allow closure
+        }
+        
+        long durationMs = System.currentTimeMillis() - streamStartTime;
+        long audioMs = (totalAudioBytes * 1000L) / (SAMPLE_RATE * BYTES_PER_SAMPLE);
+        
+        boolean hasEnough = durationMs >= MIN_AUDIO_DURATION_MS || audioMs >= MIN_AUDIO_DURATION_MS;
+        
+        if (!hasEnough) {
+            log.debug("Insufficient audio: {}ms duration, {}ms audio - ignoring silence", durationMs, audioMs);
+        }
+        
+        return hasEnough;
     }
 
     @PreDestroy
