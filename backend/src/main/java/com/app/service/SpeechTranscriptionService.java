@@ -93,15 +93,20 @@ public class SpeechTranscriptionService {
                                     transcriptSink.tryEmitNext(new TranscriptionResult(text, isFinal, "user"));
                                     
                                     if (isFinal) {
-                                        // Generate AI response
-                                        aiService.generateResponse(text)
-                                            .subscribe(
-                                                aiResponse -> {
-                                                    log.info("AI Response generated: {}", aiResponse);
-                                                    transcriptSink.tryEmitNext(new TranscriptionResult(aiResponse, true, "ai"));
-                                                },
-                                                error -> log.error("Failed to generate AI response", error)
-                                            );
+                                        // Only generate AI response if transcript meets criteria
+                                        if (shouldTriggerAI(text)) {
+                                            log.info("Triggering AI for: '{}'", text);
+                                            aiService.generateResponse(text)
+                                                .subscribe(
+                                                    aiResponse -> {
+                                                        log.info("AI Response generated: {}", aiResponse);
+                                                        transcriptSink.tryEmitNext(new TranscriptionResult(aiResponse, true, "ai"));
+                                                    },
+                                                    error -> log.error("Failed to generate AI response", error)
+                                                );
+                                        } else {
+                                            log.debug("Skipping AI trigger for: '{}' (filtered out)", text);
+                                        }
                                     }
                                 }
                             } else {
@@ -137,7 +142,8 @@ public class SpeechTranscriptionService {
             SpeechContext productContext = SpeechContext.newBuilder()
                     .addAllPhrases(java.util.List.of(
                         "Gemini", "PrepXL", "ChatGPT", "OpenAI", "Google",
-                        "Claude", "Anthropic", "Llama", "Meta"
+                        "Claude", "Anthropic", "Llama", "Meta",
+                        "Google Gemini", "Gemini AI"
                     ))
                     .setBoost(20.0f) // Maximum boost for proper nouns
                     .build();
@@ -148,20 +154,31 @@ public class SpeechTranscriptionService {
                         "API", "REST", "GraphQL", "WebSocket", "HTTP", "HTTPS",
                         "Java", "Spring Boot", "React", "JavaScript", "Python",
                         "Docker", "Kubernetes", "AWS", "Azure", "GCP",
-                        "microservice", "backend", "frontend", "full stack"
+                        "microservice", "backend", "frontend", "full stack",
+                        "Computer Science", "Information Technology"
                     ))
                     .setBoost(15.0f) // Strong boost for technical terms
                     .build();
 
-            // Interview and domain terms - Moderate boost
-            SpeechContext interviewContext = SpeechContext.newBuilder()
+            // Common phrases and commands - Moderate boost
+            SpeechContext commandContext = SpeechContext.newBuilder()
                     .addAllPhrases(java.util.List.of(
+                        "tell me", "tell me a joke", "what is", "how do I", "can you",
+                        "show me", "explain", "help me", "could you", "please",
+                        "my name is", "I am", "hello", "hi there"
+                    ))
+                    .setBoost(12.0f)
+                    .build();
+
+            // Educational and institutional terms
+            SpeechContext eduContext = SpeechContext.newBuilder()
+                    .addAllPhrases(java.util.List.of(
+                        "Centurion University", "Centurion University of Technology and Management",
                         "mock interview", "resume", "ATS", "cover letter",
                         "system design", "data structures", "algorithms",
-                        "behavioral question", "technical round", "coding interview",
-                        "tell me a joke", "what is", "how do I", "can you"
+                        "behavioral question", "technical round", "coding interview"
                     ))
-                    .setBoost(10.0f) // Moderate boost for common phrases
+                    .setBoost(10.0f)
                     .build();
 
             RecognitionConfig recognitionConfig = RecognitionConfig.newBuilder()
@@ -175,7 +192,8 @@ public class SpeechTranscriptionService {
                     .setAudioChannelCount(1)    // Mono channel
                     .addSpeechContexts(productContext)
                     .addSpeechContexts(techContext)
-                    .addSpeechContexts(interviewContext)
+                    .addSpeechContexts(commandContext)
+                    .addSpeechContexts(eduContext)
                     .build();
 
             StreamingRecognitionConfig streamingConfig = StreamingRecognitionConfig.newBuilder()
@@ -267,6 +285,106 @@ public class SpeechTranscriptionService {
         }
         
         return hasEnough;
+    }
+    
+    /**
+     * Intelligent filtering to determine if AI should be triggered.
+     * Prevents unnecessary API calls on fillers, introductions, and meaningless phrases.
+     */
+    private boolean shouldTriggerAI(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        
+        String lowerText = text.toLowerCase().trim();
+        
+        // Filter 1: Minimum word count (at least 3 words for meaningful interaction)
+        String[] words = lowerText.split("\\s+");
+        if (words.length < 3) {
+            log.debug("Filtered: Too short ({} words)", words.length);
+            return false;
+        }
+        
+        // Filter 2: Block common introductions and self-descriptions
+        String[] introPatterns = {
+            "my name is", "i am", "i'm", "this is", 
+            "hello my name", "hi my name", "myself"
+        };
+        for (String pattern : introPatterns) {
+            if (lowerText.startsWith(pattern) || lowerText.contains(" " + pattern + " ")) {
+                log.debug("Filtered: Introduction pattern detected");
+                return false;
+            }
+        }
+        
+        // Filter 3: Block Hindi/Hinglish fillers
+        String[] fillers = {"hain", "hai", "jo", "ki", "ka", "ke", "kya", "tha", "the"};
+        boolean onlyFillers = true;
+        for (String word : words) {
+            boolean isFiller = false;
+            for (String filler : fillers) {
+                if (word.equals(filler)) {
+                    isFiller = true;
+                    break;
+                }
+            }
+            if (!isFiller && word.length() > 2) { // Non-filler word found
+                onlyFillers = false;
+                break;
+            }
+        }
+        if (onlyFillers) {
+            log.debug("Filtered: Only fillers detected");
+            return false;
+        }
+        
+        // Filter 4: Require intent indicators (questions or commands)
+        String[] questionWords = {"what", "how", "why", "when", "where", "who", "which", "whose"};
+        String[] commandWords = {"tell", "show", "explain", "help", "give", "make", "create", "find", "search"};
+        String[] requestWords = {"can you", "could you", "would you", "please", "i need", "i want"};
+        
+        boolean hasIntent = false;
+        
+        // Check for question words
+        for (String qWord : questionWords) {
+            if (lowerText.contains(qWord)) {
+                hasIntent = true;
+                break;
+            }
+        }
+        
+        // Check for command words
+        if (!hasIntent) {
+            for (String cWord : commandWords) {
+                if (lowerText.contains(cWord)) {
+                    hasIntent = true;
+                    break;
+                }
+            }
+        }
+        
+        // Check for request phrases
+        if (!hasIntent) {
+            for (String rWord : requestWords) {
+                if (lowerText.contains(rWord)) {
+                    hasIntent = true;
+                    break;
+                }
+            }
+        }
+        
+        // Check for question mark (punctuation enabled)
+        if (!hasIntent && text.contains("?")) {
+            hasIntent = true;
+        }
+        
+        if (!hasIntent) {
+            log.debug("Filtered: No question/command intent detected");
+            return false;
+        }
+        
+        // Passed all filters
+        return true;
     }
 
     @PreDestroy

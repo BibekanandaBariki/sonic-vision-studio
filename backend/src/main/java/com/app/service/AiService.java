@@ -111,14 +111,36 @@ public class AiService {
                         return "Error processing AI response.";
                     }
                 })
+                // Retry logic with exponential backoff for 503 errors
+                .retryWhen(reactor.util.retry.Retry.backoff(3, java.time.Duration.ofSeconds(1))
+                    .maxBackoff(java.time.Duration.ofSeconds(4))
+                    .filter(throwable -> {
+                        if (throwable instanceof org.springframework.web.reactive.function.client.WebClientResponseException) {
+                            org.springframework.web.reactive.function.client.WebClientResponseException webEx = 
+                                (org.springframework.web.reactive.function.client.WebClientResponseException) throwable;
+                            boolean is503 = webEx.getStatusCode().value() == 503;
+                            if (is503) {
+                                log.warn("Gemini API returned 503 (Service Unavailable), retrying...");
+                            }
+                            return is503;
+                        }
+                        return false;
+                    })
+                    .doBeforeRetry(retrySignal -> 
+                        log.info("Retry attempt {} for Gemini API", retrySignal.totalRetries() + 1))
+                )
                 .onErrorResume(e -> {
-                    log.error("Gemini API call failed: {} - {}", e.getClass().getSimpleName(), e.getMessage());
+                    log.error("Gemini API call failed after retries: {} - {}", e.getClass().getSimpleName(), e.getMessage());
                     
                     if (e instanceof org.springframework.web.reactive.function.client.WebClientResponseException) {
                         org.springframework.web.reactive.function.client.WebClientResponseException webEx = 
                             (org.springframework.web.reactive.function.client.WebClientResponseException) e;
                         log.error("HTTP Status: {}, Response Body: {}", 
                             webEx.getStatusCode(), webEx.getResponseBodyAsString());
+                        
+                        if (webEx.getStatusCode().value() == 503) {
+                            return Mono.just("AI is temporarily busy. Please try again.");
+                        }
                     }
                     
                     return Mono.just("Service temporarily unavailable.");
