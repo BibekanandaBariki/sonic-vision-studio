@@ -93,20 +93,16 @@ public class SpeechTranscriptionService {
                                     transcriptSink.tryEmitNext(new TranscriptionResult(text, isFinal, "user"));
                                     
                                     if (isFinal) {
-                                        // Only generate AI response if transcript meets criteria
-                                        if (shouldTriggerAI(text)) {
-                                            log.info("Triggering AI for: '{}'", text);
-                                            aiService.generateResponse(text)
-                                                .subscribe(
-                                                    aiResponse -> {
-                                                        log.info("AI Response generated: {}", aiResponse);
-                                                        transcriptSink.tryEmitNext(new TranscriptionResult(aiResponse, true, "ai"));
-                                                    },
-                                                    error -> log.error("Failed to generate AI response", error)
-                                                );
-                                        } else {
-                                            log.debug("Skipping AI trigger for: '{}' (filtered out)", text);
-                                        }
+                                        // Generate AI response for every completed sentence
+                                        log.info("Triggering AI for: '{}'", text);
+                                        aiService.generateResponse(text)
+                                            .subscribe(
+                                                aiResponse -> {
+                                                    log.info("AI Response generated: {}", aiResponse);
+                                                    transcriptSink.tryEmitNext(new TranscriptionResult(aiResponse, true, "ai"));
+                                                },
+                                                error -> log.error("Failed to generate AI response", error)
+                                            );
                                     }
                                 }
                             } else {
